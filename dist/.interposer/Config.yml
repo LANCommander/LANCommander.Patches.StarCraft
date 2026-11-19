@@ -1,0 +1,27 @@
+# LANCommander Interposer settings for scpatch (optional).
+#
+# scpatch has the Interposer built into version.dll. To configure it, copy this file to .interposer\Config.yml
+# beside StarCraft.exe (the release package ships it as scpatch\Config.example.yml). When LANCommander installs its
+# Interposer redistributable for the game, it writes that file itself from the options set on the server, and
+# those replace what is here.
+#
+# Built-in features: MatchStatistics, Registry, Player (identity) and Plugins. Sections for other features are
+# ignored (the session log says so). The full reference is the Config.yml in the Interposer's release ZIP.
+
+Logging:
+  Matches: true      # [MATCH START] / [MATCH END] / [MATCH SENT] lines in .interposer\Logs\
+  Plugins: true
+  Level: Info
+
+# Where scpatch's match reports go (multiplayer games this machine hosts). scpatch reports as ReporterKind Host.
+#   ServerUrl, Token and GameId set: sent straight to that LANCommander server.
+#   Left blank: sent by LANCommander's launcher when it started the game, else only logged.
+MatchStatistics:
+  Enabled: true
+  ServerUrl: ''                           # e.g. 'http://lancommander.lan:1337'
+  Token: ''                               # a token with the matches:report scope; '%LANCOMMANDER_MATCH_TOKEN%' works
+  GameId: ''                              # StarCraft's id in LANCommander (a GUID)
+  ReporterName: ''                        # default: the computer name
+  FlushInterval: 2000
+
+Plugins: {}

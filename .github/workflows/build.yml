@@ -1,0 +1,98 @@
+# Builds on every push and pull request. A semver tag (v1.2.3, v1.2.3-rc.1) also queues up a draft GitHub
+# release with the package attached; publish it from the Releases page.
+name: Build
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      # the Interposer built into version.dll (LANCommander::Interposer::Embedded, compiled from source with this
+      # project): the branch or tag in the repository variable INTERPOSER_REF, else main
+      - uses: actions/checkout@v4
+        with:
+          repository: LANCommander/LANCommander.Interposer
+          ref: ${{ vars.INTERPOSER_REF || 'main' }}
+          path: LANCommander.Interposer
+          fetch-depth: 0
+
+      # the Interposer's build checks for YY-Thunks even when it is only embedded
+      - name: Fetch YY-Thunks
+        shell: pwsh
+        working-directory: LANCommander.Interposer
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File build/Get-YYThunks.ps1
+
+      # vcpkg (MinHook, yaml-cpp from vcpkg.json) comes with the runner image
+      - name: Locate vcpkg
+        run: echo "VCPKG_ROOT=$VCPKG_INSTALLATION_ROOT" >> "$GITHUB_ENV"
+
+      - name: Version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "$GITHUB_REF_NAME" | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$' \
+              || { echo "::error::$GITHUB_REF_NAME is not a semver tag (vMAJOR.MINOR.PATCH)"; exit 1; }
+            version="$GITHUB_REF_NAME"
+          else
+            version="${GITHUB_SHA::7}"
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      # newest Visual Studio, toolset pinned to v143 like the Interposer's triplets
+      - name: Build
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          cmake -S . -B build -A Win32 -T v143 "-DSCPATCH_INTERPOSER_DIR=$PWD/LANCommander.Interposer" "-DSCPATCH_VERSION=$env:VERSION"
+          cmake --build build --config Release
+
+      - name: Package
+        run: |
+          mkdir -p out/scpatch/scpatch/licenses
+          cp build/Release/version.dll dist/scpatch.ini out/scpatch/
+          cp LICENSE out/scpatch/scpatch/LICENSE.txt
+          cp README.md out/scpatch/scpatch/README.md
+          cp dist/.interposer/Config.yml out/scpatch/scpatch/Config.example.yml
+          cp Set-StarCraftCDKey.ps1 out/scpatch/scpatch/
+          # the libraries linked into version.dll
+          cp LANCommander.Interposer/LICENSE out/scpatch/scpatch/licenses/LANCommander.Interposer.txt
+          cp build/vcpkg_installed/x86-windows-static/share/minhook/copyright out/scpatch/scpatch/licenses/MinHook.txt
+          cp build/vcpkg_installed/x86-windows-static/share/yaml-cpp/copyright out/scpatch/scpatch/licenses/yaml-cpp.txt
+          (cd out/scpatch && 7z a -tzip -bso0 "../scpatch-$VERSION.zip" .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scpatch-${{ env.VERSION }}
+          path: out/*.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags="--draft"
+          case "$GITHUB_REF_NAME" in *-*) flags="$flags --prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" out/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" \
+            --generate-notes $flags

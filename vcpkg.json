@@ -1,0 +1,11 @@
+{
+  "name": "scpatch",
+  "description": "Dependencies of the embedded LANCommander Interposer. Add opus, enet and miniaudio if VOICE is turned on.",
+  "dependencies": [
+    {
+      "name": "minhook",
+      "platform": "windows"
+    },
+    "yaml-cpp"
+  ]
+}
